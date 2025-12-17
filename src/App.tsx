@@ -66,6 +66,29 @@ function App() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
+
+  // ★スマホで「入力欄が下に潜る」問題の対策：キーボード分だけフォームを持ち上げる
+useEffect(() => {
+  const vv = window.visualViewport;
+  if (!vv) return;
+
+  const update = () => {
+    // キーボードが出ると visualViewport.height が小さくなるので、その差分を bottom に足す
+    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty("--vv-bottom", `${keyboard}px`);
+  };
+
+  update();
+  vv.addEventListener("resize", update);
+  vv.addEventListener("scroll", update);
+  window.addEventListener("orientationchange", update);
+
+  return () => {
+    vv.removeEventListener("resize", update);
+    vv.removeEventListener("scroll", update);
+    window.removeEventListener("orientationchange", update);
+  };
+}, []);
   // 送信スポーン
   const [spawn, setSpawn] = useState<Spawn | null>(null);
   const sendBtnRef = useRef<HTMLButtonElement | null>(null);

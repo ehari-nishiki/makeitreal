@@ -4,13 +4,20 @@
 :root{
   --app-font: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 
+  /* ★キーボード分の持ち上げ（App.tsxで更新する。未対応端末は0のまま） */
+  --vv-bottom: 0px;
 }
 
 * { box-sizing: border-box; }
 
 .app {
   width: 100%;
+
+  /* ★重要：スマホのアドレスバーでズレにくいvh */
   height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+
   background: #1a1a1a;
   color: #fff;
   overflow: hidden;
@@ -45,8 +52,6 @@
 
 .hudBox {
   pointer-events: auto;
-
-  /* デフォ：どちらもある程度伸縮 */
   flex: 1 1 260px;
 
   border-radius: 14px;
@@ -79,29 +84,23 @@
   font-size: 40px;
   font-weight: 900;
   line-height: 1;
+
+  /* カウンター数字だけ別フォント */
   font-family: din-2014, sans-serif;
-font-weight: 700;
-font-style: normal;
+  font-weight: 700;
+  font-style: normal;
 }
 
-.hudBigSlash {
-  font-size: 18px;
-  opacity: 0.8;
-  font-family: din-2014, sans-serif;
-font-weight: 700;
-font-style: normal;
-}
-
+.hudBigSlash,
 .hudBigGoal {
   font-size: 18px;
   opacity: 0.8;
+
+  /* カウンター数字だけ別フォント */
   font-family: din-2014, sans-serif;
-font-weight: 700;
-font-style: normal;
+  font-weight: 700;
+  font-style: normal;
 }
-
-
-
 
 .hudSub {
   margin-top: 6px;
@@ -148,10 +147,14 @@ font-style: normal;
 
 /* ===== floating form ===== */
 .floatingForm {
-  position: absolute;
+  /* ★重要：absoluteをやめて fixed にする（機種差で下に潜る問題の本丸） */
+  position: fixed;
   left: 50%;
-  bottom: 14px;
   transform: translateX(-50%);
+
+  /* ★重要：ホームバー + キーボード分だけ持ち上げる */
+  bottom: calc(14px + env(safe-area-inset-bottom) + var(--vv-bottom));
+
   width: min(680px, calc(100% - 24px));
   z-index: 30;
 }
@@ -220,14 +223,11 @@ font-style: normal;
 
   .rulesList {
     font-size: 13px;
-
-    /* スマホはもう少し短くして圧迫感減らす */
     max-height: 150px;
   }
 
   .floatingForm {
     width: calc(100% - 20px);
-    bottom: 12px;
   }
 }
 
@@ -237,6 +237,5 @@ font-style: normal;
   .input { padding: 10px 12px; font-size: 15px; }
   .button { padding: 10px 12px; font-size: 15px; }
 
-  /* PCではルールが広がりすぎないように抑える（任意だけど効く） */
   .hudBox { max-width: 520px; }
 }

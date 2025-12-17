@@ -344,7 +344,7 @@ export default function IdeaMap({
       let chosenLines = [msg];
 
       for (let font = Math.floor(maxFont); font >= minFont; font -= 1) {
-        ctx.font = `${font}px var(--app-font), system-ui, -apple-system, sans-serif`;
+        ctx.font = `bold ${chosenFont}px var(--app-font), system-ui, -apple-system, sans-serif`;
         const lines = wrapByChars(msg, maxWidth);
         const lineHeight = font * 1.18;
         if (lines.length * lineHeight <= maxHeight) {
@@ -414,7 +414,7 @@ export default function IdeaMap({
       const totalH = lines.length * lh;
       let y = sy - likesAreaH * 0.65 - totalH / 2 + lh / 2;
 
-      ctx.font = `${chosenFont}px var(--app-font), system-ui, -apple-system, sans-serif`;
+      ctx.font = `bold ${chosenFont}px var(--app-font), system-ui, -apple-system, sans-serif`;
       for (const line of lines) {
         ctx.fillText(line, sx, y);
         y += lh;
