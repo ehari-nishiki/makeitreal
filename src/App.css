@@ -1,0 +1,242 @@
+/* src/App.css */
+
+/* ★Webフォントを入れたらここを変えるだけでCanvas側にも効く（var(--app-font)参照） */
+:root{
+  --app-font: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+
+}
+
+* { box-sizing: border-box; }
+
+.app {
+  width: 100%;
+  height: 100vh;
+  background: #1a1a1a;
+  color: #fff;
+  overflow: hidden;
+
+  /* 君の現状設定 */
+  font-family: yu-gothic-pr6n, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.stage {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* ===== HUD ===== */
+.hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  z-index: 20;
+  pointer-events: none; /* Canvas操作を邪魔しない */
+
+  /* ★重要：rules開いてもscoreが縦に引き伸ばされない */
+  align-items: flex-start;
+}
+
+.hudBox {
+  pointer-events: auto;
+
+  /* デフォ：どちらもある程度伸縮 */
+  flex: 1 1 260px;
+
+  border-radius: 14px;
+  padding: 12px 14px;
+
+  /* 黒塗り + グラデ枠線（背景グラデは無し） */
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#000, #000) padding-box,
+    linear-gradient(180deg, #FFC300, #FF4E00) border-box;
+
+  box-shadow: 0 10px 22px rgba(0,0,0,0.25);
+}
+
+.hudTitle {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.hudBig {
+  margin-top: 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.hudBigNum {
+  font-size: 40px;
+  font-weight: 900;
+  line-height: 1;
+  font-family: din-2014, sans-serif;
+font-weight: 700;
+font-style: normal;
+}
+
+.hudBigSlash {
+  font-size: 18px;
+  opacity: 0.8;
+  font-family: din-2014, sans-serif;
+font-weight: 700;
+font-style: normal;
+}
+
+.hudBigGoal {
+  font-size: 18px;
+  opacity: 0.8;
+  font-family: din-2014, sans-serif;
+font-weight: 700;
+font-style: normal;
+}
+
+
+
+
+.hudSub {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hudDot { opacity: 0.7; }
+
+/* ===== RULES ===== */
+.hudRules .rulesToggle {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #fff;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.rulesToggleMark {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.rulesList {
+  margin: 10px 0 0 18px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.95;
+
+  /* ★重要：ルールを開いても箱が巨大化しない */
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+/* ===== floating form ===== */
+.floatingForm {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: min(680px, calc(100% - 24px));
+  z-index: 30;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  color: #fff;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 16px;
+  outline: none;
+
+  background:
+    linear-gradient(#000, #000) padding-box,
+    linear-gradient(180deg, #FFC300, #FF4E00) border-box;
+}
+
+.button {
+  color: #fff;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+
+  background:
+    linear-gradient(#000, #000) padding-box,
+    linear-gradient(180deg, #FFC300, #FF4E00) border-box;
+}
+
+.statusLine {
+  margin-top: 10px;
+  font-size: 14px;
+  padding: 0 2px;
+}
+
+.statusLine.error { color: #ff5a5a; font-weight: 800; }
+.statusLine.ok { color: #53ff8b; font-weight: 800; }
+.statusLine.info { color: rgba(255,255,255,0.75); }
+.statusLine.idle { display: none; }
+
+/* ===== Responsive ===== */
+@media (max-width: 640px) {
+  .hud {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    gap: 10px;
+  }
+
+  .hudBox {
+    flex: 1 1 100%;
+    padding: 12px 12px;
+  }
+
+  .hudBigNum { font-size: 32px; }
+
+  .rulesList {
+    font-size: 13px;
+
+    /* スマホはもう少し短くして圧迫感減らす */
+    max-height: 150px;
+  }
+
+  .floatingForm {
+    width: calc(100% - 20px);
+    bottom: 12px;
+  }
+}
+
+@media (min-width: 1025px) {
+  /* ★PCの入力欄がデカすぎ問題：横幅・高さを抑える */
+  .floatingForm { width: min(560px, calc(100% - 24px)); }
+  .input { padding: 10px 12px; font-size: 15px; }
+  .button { padding: 10px 12px; font-size: 15px; }
+
+  /* PCではルールが広がりすぎないように抑える（任意だけど効く） */
+  .hudBox { max-width: 520px; }
+}
