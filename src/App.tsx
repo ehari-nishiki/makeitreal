@@ -1,6 +1,6 @@
 // src/App.tsx
 import "./App.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import IdeaMap from "./IdeaMap";
 import {
@@ -37,6 +37,7 @@ const RULES = [
 function App() {
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle", text: "" });
+
   const [votes, setVotes] = useState<Vote[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
 
@@ -69,13 +70,7 @@ function App() {
   const [spawn, setSpawn] = useState<Spawn | null>(null);
   const sendBtnRef = useRef<HTMLButtonElement | null>(null);
 
-  // ★ refでliked状態を保持（useCallbackを安定させる）
-  const likedIdsRef = useRef<string[]>([]);
-  useEffect(() => {
-    likedIdsRef.current = likedIds;
-  }, [likedIds]);
-
-  const loadAll = useCallback(async () => {
+  const loadAll = async () => {
     const [list, count, myLikes, st] = await Promise.all([
       fetchVotes(),
       fetchVoteCount().catch(() => null),
@@ -86,9 +81,8 @@ function App() {
     setVotes(list);
     setTotalCount(count ?? list.length);
     setLikedIds(myLikes);
-    likedIdsRef.current = myLikes; // ★即時同期
     setStats(st);
-  }, []);
+  };
 
   useEffect(() => {
     if (!auth.currentUser) signInAnonymously(auth).catch(console.error);
@@ -102,31 +96,39 @@ function App() {
     });
 
     return () => unsub();
-  }, [loadAll]);
+  }, []);
 
   const scoreView = useMemo(() => {
+    // ★meta/statsがあるならそれが正
     if (stats) {
-      return { voteCount: stats.voteCount, totalLikes: stats.totalLikes, score: stats.score };
+      return {
+        voteCount: stats.voteCount,
+        totalLikes: stats.totalLikes,
+        score: stats.score,
+      };
     }
+    // ★fallback（件数が全部取れてない可能性はあるが壊れない）
     const voteCount = totalCount ?? votes.length;
     const totalLikes = votes.reduce((s, v) => s + Number(v.likeCount ?? 0), 0);
     const score = voteCount * 10 + totalLikes;
     return { voteCount, totalLikes, score };
   }, [stats, totalCount, votes]);
 
-  // ✅ 重要：この関数を安定化 → IdeaMapのCanvasループが毎回作り直されなくなる（チカチカ激減）
-  const handleToggleLike = useCallback(async (id: string) => {
+  /**
+   * ★ いいねトグル
+   * - IdeaMap 側が「表タップ=ON」「裏タップ=OFF」で呼んでくる
+   * - ここはサーバー真実で補正しつつ、optimisticでサクサク動かす
+   */
+  const handleToggleLike = async (id: string) => {
     if (id.startsWith("temp-")) return { liked: false, likeCount: 0 };
 
-    const currentlyLiked = likedIdsRef.current.includes(id);
+    const currentlyLiked = likedIds.includes(id);
     const delta = currentlyLiked ? -1 : 1;
 
-    // optimistic（即UI反映）
+    // optimistic
     setLikedIds((prev) => {
-      const has = prev.includes(id);
-      const next = has ? prev.filter((x) => x !== id) : [...prev, id];
-      likedIdsRef.current = next; // ★即時同期
-      return next;
+      if (currentlyLiked) return prev.filter((x) => x !== id);
+      return [...prev, id];
     });
 
     setVotes((prev) =>
@@ -145,28 +147,29 @@ function App() {
     });
 
     try {
-      const r = await likeVote(id); // server is truth
+      const r = await likeVote(id); // server truth
 
+      // voteのlikeCountをサーバー値で確定
       setVotes((prev) => prev.map((v) => (v.id === id ? { ...v, likeCount: r.likeCount } : v)));
 
+      // likedIdsをサーバー値で確定
       setLikedIds((prev) => {
         const has = prev.includes(id);
-        let next = prev;
-        if (r.liked && !has) next = [...prev, id];
-        if (!r.liked && has) next = prev.filter((x) => x !== id);
-        likedIdsRef.current = next; // ★即時同期
-        return next;
+        if (r.liked && !has) return [...prev, id];
+        if (!r.liked && has) return prev.filter((x) => x !== id);
+        return prev;
       });
 
-      // statsは取り直し（確実）
+      // statsもサーバー側集計が真（軽いので取り直し）
       fetchStats().then(setStats).catch(() => {});
       return { liked: r.liked, likeCount: r.likeCount };
     } catch (e) {
       setStatus({ kind: "error", text: "いいね失敗（通信/サーバー）" });
+      // 最終的に正へ戻す
       loadAll().catch(() => {});
       return { liked: currentlyLiked, likeCount: 0 };
     }
-  }, [loadAll]);
+  };
 
   const handleSubmit = async () => {
     const trimmed = message.trim();
@@ -210,7 +213,7 @@ function App() {
       <div className="stage">
         {/* HUD（カウンター＆ルール） */}
         <div className="hud">
-          <div className="hudBox hudScore">
+          <div className="hudBox">
             <div className="hudTitle">SCORE</div>
 
             <div className="hudBig">
@@ -220,9 +223,9 @@ function App() {
             </div>
 
             <div className="hudSub">
-              <span>投稿数 {scoreView.voteCount}（×10）</span>
+              <span>投稿 {scoreView.voteCount}（×10）</span>
               <span className="hudDot">•</span>
-              <span>いいね数 {scoreView.totalLikes}（×1）</span>
+              <span>いいね {scoreView.totalLikes}（×1）</span>
             </div>
           </div>
 

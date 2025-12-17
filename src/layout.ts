@@ -1,4 +1,5 @@
 // src/layout.ts
+
 export type Idea = {
   id: string;
   message: string;
@@ -11,7 +12,7 @@ export type Node = {
   message: string;
   x: number;
   y: number;
-  r: number;
+  r: number; // レイアウト用の基準半径（描画側で視覚的に増やす）
 };
 
 type LayoutOptions = {
@@ -67,15 +68,14 @@ function cellKey(ix: number, iy: number) {
 }
 
 export function layoutIdeas(ideas: Idea[], opts: LayoutOptions = {}): Node[] {
-  // ★さらに大きく
-  const baseR = 40;
+  // ✅ 全体的に円を大きく：26 → 34
+  const baseR = 34;
 
   const gap = opts.gap ?? 5;
-  const density = opts.density ?? 0.93;
-  const iterations = opts.iterations ?? 18;
+  const density = opts.density ?? 0.92;
+  const iterations = opts.iterations ?? 20;
 
-  const maxTextScale = 1.30;
-  const maxR = baseR * maxTextScale;
+  const maxR = baseR * 1.35;
 
   const spacing = ((2 * maxR + gap) / Math.sqrt(3)) * density;
   const coords = axialSpiral(ideas.length);
@@ -84,10 +84,11 @@ export function layoutIdeas(ideas: Idea[], opts: LayoutOptions = {}): Node[] {
     const c = coords[i] ?? { q: 0, r: 0 };
     const p = hexToPixel(c.q, c.r, spacing);
 
+    // テキスト長による微調整
     const msgLen = idea.message?.length ?? 0;
-    const textScale = clamp(1 + Math.floor(msgLen / 8) * 0.06, 1, maxTextScale);
+    const textScale = clamp(1 + Math.floor(msgLen / 7) * 0.06, 1, 1.28);
 
-    const r = clamp(baseR * textScale, 28, maxR);
+    const r = clamp(baseR * textScale, 22, maxR);
     return { id: idea.id, message: idea.message ?? "", x: p.x, y: p.y, r };
   });
 
@@ -110,12 +111,15 @@ export function layoutIdeas(ideas: Idea[], opts: LayoutOptions = {}): Node[] {
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
 
+      // obstacle push
       if (obstacle) {
         let dxObs = a.x - obstacle.x;
         let dyObs = a.y - obstacle.y;
         let dObs = Math.hypot(dxObs, dyObs);
         if (dObs < 1e-6) {
-          dxObs = 1; dyObs = 0; dObs = 1;
+          dxObs = 1;
+          dyObs = 0;
+          dObs = 1;
         }
         const minDistObs = a.r + obstacle.r + gap;
         if (dObs < minDistObs) {
@@ -140,7 +144,11 @@ export function layoutIdeas(ideas: Idea[], opts: LayoutOptions = {}): Node[] {
             let dx = b.x - a.x;
             let dy = b.y - a.y;
             let d = Math.hypot(dx, dy);
-            if (d < 1e-6) { dx = 1; dy = 0; d = 1; }
+            if (d < 1e-6) {
+              dx = 1;
+              dy = 0;
+              d = 1;
+            }
 
             const minDist = a.r + b.r + gap;
             if (d < minDist) {
