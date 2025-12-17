@@ -12,7 +12,7 @@ export type Node = {
   message: string;
   x: number;
   y: number;
-  r: number; // レイアウト用の基準半径（描画側で視覚的に増やす）
+  r: number; // レイアウト用の基準半径（ここに “最大見た目倍率” 分の余白を含める）
 };
 
 type LayoutOptions = {
@@ -68,14 +68,17 @@ function cellKey(ix: number, iy: number) {
 }
 
 export function layoutIdeas(ideas: Idea[], opts: LayoutOptions = {}): Node[] {
-  // ✅ 全体的に円を大きく：26 → 34
-  const baseR = 34;
+  // ✅ “元の円” は大きめにして、見やすさも維持
+  const baseR = 32;
 
-  const gap = opts.gap ?? 5;
-  const density = opts.density ?? 0.92;
-  const iterations = opts.iterations ?? 20;
+  // ✅ IdeaMapの見た目倍率が最大 1.22 まで行くので、レイアウト側はそれを確保する
+  const MAX_VISUAL_MUL = 1.22;
 
-  const maxR = baseR * 1.35;
+  const gap = opts.gap ?? 8;
+  const density = opts.density ?? 0.86;
+  const iterations = opts.iterations ?? 32;
+
+  const maxR = baseR * 1.35 * MAX_VISUAL_MUL;
 
   const spacing = ((2 * maxR + gap) / Math.sqrt(3)) * density;
   const coords = axialSpiral(ideas.length);
@@ -84,11 +87,13 @@ export function layoutIdeas(ideas: Idea[], opts: LayoutOptions = {}): Node[] {
     const c = coords[i] ?? { q: 0, r: 0 };
     const p = hexToPixel(c.q, c.r, spacing);
 
-    // テキスト長による微調整
+    // テキスト長で少し増やす
     const msgLen = idea.message?.length ?? 0;
     const textScale = clamp(1 + Math.floor(msgLen / 7) * 0.06, 1, 1.28);
 
-    const r = clamp(baseR * textScale, 22, maxR);
+    // ✅ レイアウト半径には MAX_VISUAL_MUL を掛けておく（見た目で膨らんでも重ならない）
+    const r = clamp(baseR * textScale * MAX_VISUAL_MUL, 24, maxR);
+
     return { id: idea.id, message: idea.message ?? "", x: p.x, y: p.y, r };
   });
 

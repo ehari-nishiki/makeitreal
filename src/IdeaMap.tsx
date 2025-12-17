@@ -10,14 +10,10 @@ type Props = {
   ideas: IdeaWithLikes[];
   likedIds?: string[];
   height?: number | string;
-
-  // 戻り値 liked は「押した後の状態」
   onToggleLike?: (id: string) => Promise<{ liked: boolean; likeCount: number }>;
-
   centerOverlay?: ReactNode;
   centerSize?: number;
   centerWorld?: { x: number; y: number };
-
   spawn?: Spawn;
 };
 
@@ -26,6 +22,15 @@ type PointerState = { id: number; x: number; y: number };
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+function easeOutCubic(t: number) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function smoothstep(edge0: number, edge1: number, x: number) {
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 export default function IdeaMap({
@@ -40,6 +45,23 @@ export default function IdeaMap({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const logoWrapRef = useRef<HTMLDivElement | null>(null);
+
+  // ===== 変わるものは全部refへ（Canvas初期化を作り直さない） =====
+  const onToggleLikeRef = useRef(onToggleLike);
+  useEffect(() => {
+    onToggleLikeRef.current = onToggleLike;
+  }, [onToggleLike]);
+
+  const centerWorldRef = useRef(centerWorld);
+  useEffect(() => {
+    centerWorldRef.current = centerWorld;
+  }, [centerWorld.x, centerWorld.y]);
+
+  const obstacleR = centerSize * 0.40 + 6;
+  const obstacleRRef = useRef(obstacleR);
+  useEffect(() => {
+    obstacleRRef.current = obstacleR;
+  }, [obstacleR]);
 
   // likeCount参照
   const likeMapRef = useRef<Map<string, number>>(new Map());
@@ -74,23 +96,18 @@ export default function IdeaMap({
   const clampSoftUntilRef = useRef<number>(0);
 
   /**
-   * ✅ チカチカ対策：
-   * - いいね数変化で layout を組み直すと「位置が毎回変わる」→チラつく
-   * - layoutKey は「id+message」だけにする（likeCountでは再計算しない）
+   * ✅ layout再計算は「id+message」だけ
+   * likeCountでレイアウト組み直し→位置が動く＝チラつく、を避ける
    */
-  const layoutKey = useMemo(() => {
-    return ideas.map((i) => `${i.id}:${i.message}`).join("|");
-  }, [ideas]);
-
-  const obstacleR = centerSize * 0.40 + 6;
+  const layoutKey = useMemo(() => ideas.map((i) => `${i.id}:${i.message}`).join("|"), [ideas]);
 
   const nodes: Node[] = useMemo(() => {
     return layoutIdeas(
       ideas.map((i) => ({ ...i, likeCount: i.likeCount ?? 0 })),
       {
-        gap: 5,
-        density: 0.92,
-        iterations: 20,
+        gap: 8,
+        density: 0.86,
+        iterations: 32,
         centerObstacle: { x: centerWorld.x, y: centerWorld.y, r: obstacleR },
       }
     );
@@ -113,9 +130,8 @@ export default function IdeaMap({
     pendingSpawnRef.current = { id: spawn.id, clientX: spawn.clientX, clientY: spawn.clientY };
   }, [spawn?.id, spawn?.clientX, spawn?.clientY]);
 
-  // flip (0 front, 1 back)
+  // flip
   const flipRef = useRef<Map<string, { p: number; target: number }>>(new Map());
-
   const setFlipTarget = (id: string, target: 0 | 1) => {
     const m = flipRef.current;
     const cur = m.get(id) ?? { p: target, target };
@@ -124,10 +140,7 @@ export default function IdeaMap({
   };
 
   /**
-   * ✅「いいね済みなら裏で復元」本体
-   * - リロードでlikedIdsが復元されたタイミングで flip も同期する
-   * - 追加: いいねされた → 裏
-   * - 削除: いいね解除 → 表
+   * ✅ いいね済みなら裏で復元
    */
   const prevLikedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -135,24 +148,11 @@ export default function IdeaMap({
     const prev = prevLikedRef.current;
     const next = new Set(likedIds);
 
-    // 追加分：裏へ
     for (const id of next) {
-      if (!prev.has(id)) {
-        m.set(id, { p: 1, target: 1 });
-      }
+      if (!prev.has(id)) m.set(id, { p: 1, target: 1 });
     }
-
-    // 削除分：表へ
     for (const id of prev) {
-      if (!next.has(id)) {
-        m.set(id, { p: 0, target: 0 });
-      }
-    }
-
-    // 初回ロード時にも「いいね済みは裏」を強制
-    for (const id of next) {
-      const cur = m.get(id);
-      if (!cur) m.set(id, { p: 1, target: 1 });
+      if (!next.has(id)) m.set(id, { p: 0, target: 0 });
     }
 
     prevLikedRef.current = next;
@@ -161,6 +161,44 @@ export default function IdeaMap({
   // like多重送信防止
   const likeBusyRef = useRef<Set<string>>(new Set());
 
+  /**
+   * ✅ 見た目半径アニメ（急変でチラつくのを抑える）
+   */
+  const radiusAnimRef = useRef<Map<string, { cur: number; target: number }>>(new Map());
+  const MAX_VISUAL_MUL = 1.22;
+
+  const computeTargetMul = (id: string) => {
+    const likes = likeMapRef.current.get(id) ?? 0;
+    const liked = likedSetRef.current.has(id);
+    const byLikes = clamp(Math.log2(likes + 1) * 0.05, 0, 0.16);
+    const byMe = liked ? 0.06 : 0;
+    return clamp(1 + byLikes + byMe, 1, MAX_VISUAL_MUL);
+  };
+
+  useEffect(() => {
+    const m = radiusAnimRef.current;
+    for (const it of ideas) {
+      const t = computeTargetMul(it.id);
+      const cur = m.get(it.id);
+      if (!cur) m.set(it.id, { cur: t, target: t });
+      else cur.target = t;
+    }
+  }, [ideas, likedIds]);
+
+  // ✅ タップ判定（clickを使わない）
+  const tapRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startT: number;
+    active: boolean;
+  } | null>(null);
+
+  /**
+   * ================================
+   * ✅ Canvas 初期化は「1回だけ」
+   * ================================
+   */
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -171,12 +209,25 @@ export default function IdeaMap({
     let raf = 0;
     let lastT = performance.now();
 
-    const resize = () => {
+    // ✅ ResizeObserverが連打されるとチラつくことがあるのでrAFで間引き
+    let resizeQueued = false;
+
+    const resizeNow = () => {
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       canvas.width = Math.floor(rect.width * dpr);
       canvas.height = Math.floor(rect.height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+    };
+
+    const scheduleResize = () => {
+      if (resizeQueued) return;
+      resizeQueued = true;
+      requestAnimationFrame(() => {
+        resizeQueued = false;
+        resizeNow();
+      });
     };
 
     const worldToScreen = (x: number, y: number) => {
@@ -214,10 +265,14 @@ export default function IdeaMap({
         minY = Math.min(minY, n.y - n.r);
         maxY = Math.max(maxY, n.y + n.r);
       }
-      minX = Math.min(minX, centerWorld.x - obstacleR);
-      maxX = Math.max(maxX, centerWorld.x + obstacleR);
-      minY = Math.min(minY, centerWorld.y - obstacleR);
-      maxY = Math.max(maxY, centerWorld.y + obstacleR);
+
+      const cw = centerWorldRef.current;
+      const obs = obstacleRRef.current;
+      minX = Math.min(minX, cw.x - obs);
+      maxX = Math.max(maxX, cw.x + obs);
+      minY = Math.min(minY, cw.y - obs);
+      maxY = Math.max(maxY, cw.y + obs);
+
       return { minX, maxX, minY, maxY };
     };
 
@@ -231,8 +286,8 @@ export default function IdeaMap({
       const halfH = (h / 2) / cam.scale;
 
       const worldMargin = 1100;
-
       const b = getWorldBounds();
+
       const minCx = b.minX - worldMargin + halfW;
       const maxCx = b.maxX + worldMargin - halfW;
       const minCy = b.minY - worldMargin + halfH;
@@ -251,38 +306,6 @@ export default function IdeaMap({
       const a = 1 - Math.exp(-k * dt);
       cam.cx += (targetCx - cam.cx) * a;
       cam.cy += (targetCy - cam.cy) * a;
-    };
-
-    const hitTestLogo = (sx: number, sy: number) => {
-      const { x, y } = screenToWorld(sx, sy);
-      return Math.hypot(x - centerWorld.x, y - centerWorld.y) <= obstacleR;
-    };
-
-    /**
-     * ✅ いいねが増えると「見た目だけ」大きくする（layoutは変えない）
-     * - layoutを変えないからチラつきが減る
-     */
-    const visualRadiusMul = (id: string) => {
-      const likes = likeMapRef.current.get(id) ?? 0;
-      const liked = likedSetRef.current.has(id);
-
-      // logでゆるやかに増える（最大 +22%）
-      const byLikes = clamp(Math.log2(likes + 1) * 0.06, 0, 0.22);
-      // 自分がいいね済みなら +6%（「わかりやすく」）
-      const byMe = liked ? 0.06 : 0;
-
-      return 1 + byLikes + byMe;
-    };
-
-    const hitTest = (sx: number, sy: number) => {
-      const { x, y } = screenToWorld(sx, sy);
-      const cur = nodesRef.current;
-      for (const n of cur) {
-        const rr = n.r * visualRadiusMul(n.id);
-        const d = Math.hypot(n.x - x, n.y - y);
-        if (d <= rr) return n;
-      }
-      return null;
     };
 
     const gradStroke = (sx: number, sy: number, sr: number) => {
@@ -306,11 +329,6 @@ export default function IdeaMap({
       return lines;
     };
 
-    /**
-     * ✅ 文字を「できるだけ大きく」する：
-     * - maxFontを上げる（前より攻める）
-     * - フィットしないなら落としていく
-     */
     const drawTextFront = (sx: number, sy: number, sr: number, msg: string, alpha: number) => {
       const padding = Math.max(12, sr * 0.30);
       const usableR = Math.max(8, sr - padding);
@@ -402,7 +420,6 @@ export default function IdeaMap({
         y += lh;
       }
 
-      // ♥：下側（見やすめ大きめ）
       const likesFont = clamp(sr * 0.30, 13, 26);
       ctx.font = `${likesFont}px var(--app-font), system-ui, -apple-system, sans-serif`;
       ctx.fillText(`♥ ${likes}`, sx, sy + usableR * 0.43);
@@ -410,7 +427,34 @@ export default function IdeaMap({
       ctx.restore();
     };
 
+    const visualMulNow = (id: string) => radiusAnimRef.current.get(id)?.cur ?? 1;
+
+    const hitTest = (sx: number, sy: number) => {
+      const { x, y } = screenToWorld(sx, sy);
+      for (const n of nodesRef.current) {
+        const rr = n.r * visualMulNow(n.id);
+        if (Math.hypot(n.x - x, n.y - y) <= rr) return n;
+      }
+      return null;
+    };
+
+    const hitTestLogo = (sx: number, sy: number) => {
+      const { x, y } = screenToWorld(sx, sy);
+      const cw = centerWorldRef.current;
+      return Math.hypot(x - cw.x, y - cw.y) <= obstacleRRef.current;
+    };
+
     const draw = (dt: number) => {
+      // 半径アニメ更新
+      {
+        const k = 12;
+        const a = 1 - Math.exp(-k * dt);
+        for (const [, st] of radiusAnimRef.current.entries()) {
+          st.cur += (st.target - st.cur) * a;
+          if (Math.abs(st.cur - st.target) < 0.001) st.cur = st.target;
+        }
+      }
+
       // spawn start
       if (pendingSpawnRef.current) {
         const p = pendingSpawnRef.current;
@@ -435,7 +479,7 @@ export default function IdeaMap({
         camRef.current.cy += v.vy * dt;
       }
 
-      // focus（ロゴタップ後：一回寄せて終わる）
+      // focus
       if (focusRef.current.active && !draggingRef.current) {
         const cam = camRef.current;
         const k = 10;
@@ -464,13 +508,11 @@ export default function IdeaMap({
 
       softClampCamera(dt);
 
-      // clear
       const rect = canvas.getBoundingClientRect();
       const w = rect.width;
       const h = rect.height;
-      ctx.clearRect(0, 0, w, h);
 
-      // bg
+      ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "#1a1a1a";
       ctx.fillRect(0, 0, w, h);
 
@@ -495,9 +537,8 @@ export default function IdeaMap({
       const left = -margin, top = -margin, right = w + margin, bottom = h + margin;
 
       const now = performance.now();
-      const curNodes = nodesRef.current;
 
-      for (const n of curNodes) {
+      for (const n of nodesRef.current) {
         const anim = spawnAnimRef.current.get(n.id);
         let wx = n.x, wy = n.y;
         let sizeMul = 1;
@@ -520,7 +561,7 @@ export default function IdeaMap({
         const cosv = Math.cos(Math.PI * p);
         const squish = Math.max(0.08, Math.abs(cosv));
 
-        const vr = visualRadiusMul(n.id);
+        const vr = visualMulNow(n.id);
         const sr = n.r * vr * scale * sizeMul;
 
         if (sx + sr < left || sx - sr > right || sy + sr < top || sy - sr > bottom) continue;
@@ -532,17 +573,11 @@ export default function IdeaMap({
 
         const isFront = p < 0.5;
 
-        // 塗り
-        if (isFront) {
-          ctx.fillStyle = `rgba(0,0,0,${1 * extraAlpha})`;
-        } else {
-          ctx.fillStyle = `rgba(255,255,255,${clamp(0.98 * extraAlpha, 0, 1)})`;
-        }
+        ctx.fillStyle = isFront ? `rgba(0,0,0,${1 * extraAlpha})` : `rgba(255,255,255,${clamp(0.98 * extraAlpha, 0, 1)})`;
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
         ctx.fill();
 
-        // 枠（グラデ）
         ctx.lineWidth = 4;
         ctx.strokeStyle = gradStroke(sx, sy, sr);
         ctx.beginPath();
@@ -550,9 +585,7 @@ export default function IdeaMap({
         ctx.stroke();
 
         if (isFront) {
-          if (frontAlpha > 0.10 && sr >= 34) {
-            drawTextFront(sx, sy, sr, n.message ?? "", frontAlpha * extraAlpha);
-          }
+          if (frontAlpha > 0.10 && sr >= 34) drawTextFront(sx, sy, sr, n.message ?? "", frontAlpha * extraAlpha);
         } else {
           if (backAlpha > 0.10) {
             const likes = likeMapRef.current.get(n.id) ?? 0;
@@ -563,15 +596,16 @@ export default function IdeaMap({
         ctx.restore();
       }
 
-      // ロゴ追従（触れない）
+      // ロゴ追従
       const logoEl = logoWrapRef.current;
       if (logoEl) {
-        const p = worldToScreen(centerWorld.x, centerWorld.y);
+        const cw = centerWorldRef.current;
+        const p = worldToScreen(cw.x, cw.y);
         logoEl.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -50%) scale(${scale})`;
       }
     };
 
-    // events
+    // ===== events =====
     const onPointerDown = (e: PointerEvent) => {
       (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
       pointersRef.current.set(e.pointerId, { id: e.pointerId, x: e.clientX, y: e.clientY });
@@ -581,7 +615,14 @@ export default function IdeaMap({
       velRef.current.vx = 0;
       velRef.current.vy = 0;
 
-      // ロゴ引き寄せはドラッグで解除
+      tapRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startT: performance.now(),
+        active: true,
+      };
+
       focusRef.current.active = false;
 
       if (pointersRef.current.size === 2) {
@@ -600,6 +641,8 @@ export default function IdeaMap({
           lastMidY: midY,
         };
         clampSoftUntilRef.current = performance.now() + 360;
+
+        if (tapRef.current) tapRef.current.active = false;
       }
     };
 
@@ -608,6 +651,12 @@ export default function IdeaMap({
       pointersRef.current.set(e.pointerId, { id: e.pointerId, x: e.clientX, y: e.clientY });
 
       const now = performance.now();
+
+      if (tapRef.current?.active && tapRef.current.pointerId === e.pointerId) {
+        const dx = e.clientX - tapRef.current.startX;
+        const dy = e.clientY - tapRef.current.startY;
+        if (Math.hypot(dx, dy) > 8) tapRef.current.active = false;
+      }
 
       if (pinchRef.current.active && pointersRef.current.size === 2) {
         const pts = Array.from(pointersRef.current.values());
@@ -650,12 +699,53 @@ export default function IdeaMap({
       lastMoveRef.current = { t: now, x: e.clientX, y: e.clientY };
     };
 
-    const onPointerUp = (e: PointerEvent) => {
+    const onPointerUp = async (e: PointerEvent) => {
       pointersRef.current.delete(e.pointerId);
       if (pointersRef.current.size < 2) pinchRef.current.active = false;
+
       if (pointersRef.current.size === 0) {
         draggingRef.current = false;
         lastMoveRef.current = null;
+      }
+
+      const tap = tapRef.current;
+      if (tap?.active && tap.pointerId === e.pointerId) {
+        const elapsed = performance.now() - tap.startT;
+        tapRef.current = null;
+
+        if (elapsed > 450) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+
+        if (hitTestLogo(sx, sy)) {
+          focusRef.current = { active: true, tx: 0, ty: 0 };
+          velRef.current.vx = 0;
+          velRef.current.vy = 0;
+          clampSoftUntilRef.current = performance.now() + 260;
+          return;
+        }
+
+        const n = hitTest(sx, sy);
+        if (!n) return;
+
+        const alreadyLiked = likedSetRef.current.has(n.id);
+        setFlipTarget(n.id, alreadyLiked ? 0 : 1);
+
+        const fn = onToggleLikeRef.current;
+        if (!fn) return;
+        if (likeBusyRef.current.has(n.id)) return;
+
+        likeBusyRef.current.add(n.id);
+        try {
+          const r = await fn(n.id);
+          setFlipTarget(n.id, r.liked ? 1 : 0);
+        } finally {
+          likeBusyRef.current.delete(n.id);
+        }
+      } else {
+        if (tapRef.current?.pointerId === e.pointerId) tapRef.current = null;
       }
     };
 
@@ -668,47 +758,8 @@ export default function IdeaMap({
       zoomAt(sx, sy, factor);
     };
 
-    /**
-     * ✅ クリック仕様（あなたの要求通り）
-     * - 表タップ → 裏へ + いいねON
-     * - 裏タップ → いいねOFF + 表へ
-     * - リロードで likedIds から裏状態も復元される
-     */
-    const onClick = async (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
-
-      if (hitTestLogo(sx, sy)) {
-        focusRef.current = { active: true, tx: 0, ty: 0 };
-        velRef.current.vx = 0;
-        velRef.current.vy = 0;
-        clampSoftUntilRef.current = performance.now() + 260;
-        return;
-      }
-
-      const n = hitTest(sx, sy);
-      if (!n) return;
-
-      const alreadyLiked = likedSetRef.current.has(n.id);
-      const optimisticTarget: 0 | 1 = alreadyLiked ? 0 : 1;
-
-      // 見た目は即反映（体感を軽く）
-      setFlipTarget(n.id, optimisticTarget);
-
-      if (!onToggleLike) return;
-      if (likeBusyRef.current.has(n.id)) return;
-
-      likeBusyRef.current.add(n.id);
-      try {
-        const r = await onToggleLike(n.id); // server+optimisticが混ざるが最終はここで揃う
-        setFlipTarget(n.id, r.liked ? 1 : 0);
-      } finally {
-        likeBusyRef.current.delete(n.id);
-      }
-    };
-
-    resize();
+    // init
+    resizeNow();
     const tick = (t: number) => {
       const dt = Math.min(0.05, (t - lastT) / 1000);
       lastT = t;
@@ -717,27 +768,36 @@ export default function IdeaMap({
     };
     raf = requestAnimationFrame(tick);
 
-    const ro = new ResizeObserver(resize);
+    const ro = new ResizeObserver(scheduleResize);
     ro.observe(canvas);
+    window.addEventListener("resize", scheduleResize);
 
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
     canvas.addEventListener("wheel", onWheel, { passive: false });
-    canvas.addEventListener("click", onClick);
+
+    // ✅ clickは殺す（iOS二重発火の根）
+    const preventClick = (ev: MouseEvent) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+    };
+    canvas.addEventListener("click", preventClick, { passive: false });
 
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      window.removeEventListener("resize", scheduleResize);
+
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
       canvas.removeEventListener("wheel", onWheel);
-      canvas.removeEventListener("click", onClick);
+      canvas.removeEventListener("click", preventClick);
     };
-  }, [centerWorld.x, centerWorld.y, obstacleR, onToggleLike, layoutKey, likedIds]);
+  }, []); // ★ここが超重要：Canvasは作り直さない（チラつき根絶）
 
   return (
     <div style={{ width: "100%", height, position: "relative", overflow: "hidden" }}>
@@ -785,13 +845,4 @@ export default function IdeaMap({
       />
     </div>
   );
-}
-
-function easeOutCubic(t: number) {
-  return 1 - Math.pow(1 - t, 3);
-}
-
-function smoothstep(edge0: number, edge1: number, x: number) {
-  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
 }
