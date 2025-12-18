@@ -46,6 +46,9 @@ function App() {
 
   const [rulesOpen, setRulesOpen] = useState(false);
 
+  // ✅ 使い方：リロードしたら必ず表示
+  const [introOpen, setIntroOpen] = useState(true);
+
   // ✅ ロゴサイズ：スマホ(<=640)は画面幅70% / iPadはほどよく大きめ
   const [centerSize, setCenterSize] = useState<number>(() => {
     const w = window.innerWidth;
@@ -66,29 +69,28 @@ function App() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
-
   // ★スマホで「入力欄が下に潜る」問題の対策：キーボード分だけフォームを持ち上げる
-useEffect(() => {
-  const vv = window.visualViewport;
-  if (!vv) return;
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
 
-  const update = () => {
-    // キーボードが出ると visualViewport.height が小さくなるので、その差分を bottom に足す
-    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    document.documentElement.style.setProperty("--vv-bottom", `${keyboard}px`);
-  };
+    const update = () => {
+      const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty("--vv-bottom", `${keyboard}px`);
+    };
 
-  update();
-  vv.addEventListener("resize", update);
-  vv.addEventListener("scroll", update);
-  window.addEventListener("orientationchange", update);
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    window.addEventListener("orientationchange", update);
 
-  return () => {
-    vv.removeEventListener("resize", update);
-    vv.removeEventListener("scroll", update);
-    window.removeEventListener("orientationchange", update);
-  };
-}, []);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+
   // 送信スポーン
   const [spawn, setSpawn] = useState<Spawn | null>(null);
   const sendBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -122,7 +124,6 @@ useEffect(() => {
   }, []);
 
   const scoreView = useMemo(() => {
-    // ★meta/statsがあるならそれが正
     if (stats) {
       return {
         voteCount: stats.voteCount,
@@ -130,7 +131,6 @@ useEffect(() => {
         score: stats.score,
       };
     }
-    // ★fallback（件数が全部取れてない可能性はあるが壊れない）
     const voteCount = totalCount ?? votes.length;
     const totalLikes = votes.reduce((s, v) => s + Number(v.likeCount ?? 0), 0);
     const score = voteCount * 10 + totalLikes;
@@ -172,10 +172,8 @@ useEffect(() => {
     try {
       const r = await likeVote(id); // server truth
 
-      // voteのlikeCountをサーバー値で確定
       setVotes((prev) => prev.map((v) => (v.id === id ? { ...v, likeCount: r.likeCount } : v)));
 
-      // likedIdsをサーバー値で確定
       setLikedIds((prev) => {
         const has = prev.includes(id);
         if (r.liked && !has) return [...prev, id];
@@ -183,12 +181,10 @@ useEffect(() => {
         return prev;
       });
 
-      // statsもサーバー側集計が真（軽いので取り直し）
       fetchStats().then(setStats).catch(() => {});
       return { liked: r.liked, likeCount: r.likeCount };
     } catch (e) {
       setStatus({ kind: "error", text: "いいね失敗（通信/サーバー）" });
-      // 最終的に正へ戻す
       loadAll().catch(() => {});
       return { liked: currentlyLiked, likeCount: 0 };
     }
@@ -234,6 +230,47 @@ useEffect(() => {
   return (
     <div className="app">
       <div className="stage">
+        {/* ✅ 使い方（リロードで必ず表示） */}
+        {introOpen && (
+          <div className="introOverlay" role="dialog" aria-modal="true">
+            <div className="introCard">
+              <div className="introLogoWrap">
+                <img
+                  className="introLogo"
+                  src={`${import.meta.env.BASE_URL}logo.png`}
+                  alt="logo"
+                />
+              </div>
+
+              <div className="introBody">
+                <p>
+                  鳩祭に対する思い、アイデア、
+                  <br />
+                  やりたいことを、送信してみよう！
+                </p>
+
+                <div className="introSpacer" />
+
+                <p>
+                  他の人の意見に共感したら
+                  <br />
+                  意見の円をタップして、
+                  <br />
+                  <span className="introBig">それな！</span>って、
+                  <br />
+                  共感してみよう。
+                </p>
+              </div>
+
+              <button className="introStartButton" onClick={() => setIntroOpen(false)}>
+                はじめる
+              </button>
+
+              <div className="introPowered">Powered by HatoFes App.</div>
+            </div>
+          </div>
+        )}
+
         {/* HUD（カウンター＆ルール） */}
         <div className="hud">
           <div className="hudBox">

@@ -23,9 +23,9 @@
   overflow: hidden;
 
   /* 君の現状設定 */
-  font-family: yu-gothic-pr6n, sans-serif;
-  font-weight: 400;
-  font-style: normal;
+  font-family: "hiragino-kaku-gothic-pron", sans-serif;
+font-weight: 600;
+font-style: normal;
 }
 
 .stage {
@@ -238,4 +238,106 @@
   .button { padding: 10px 12px; font-size: 15px; }
 
   .hudBox { max-width: 520px; }
+}
+
+/* =========================================================
+   ✅ 使い方（Intro Overlay）
+   - 背景：角丸長方形で背景は半透明
+   - ロゴ：上三分の一くらい
+   - 中央揃え
+   - 本文/ボタン：游ゴシック
+   - Powered by：DIN
+   ========================================================= */
+.introOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+
+  background: rgba(0,0,0,0.35);
+}
+
+.introCard{
+  width: min(440px, 92vw);
+  border-radius: 26px;
+
+  background: rgba(255,255,255,0.90);
+  backdrop-filter: blur(10px);
+
+  color: #111;
+  text-align: center;
+
+  padding: 22px 18px 16px;
+  box-shadow: 0 22px 70px rgba(0,0,0,0.35);
+
+  font-family: "hiragino-kaku-gothic-pron", sans-serif;
+font-weight: 600;
+font-style: normal;
+}
+
+.introLogoWrap{
+  padding-top: 6px;
+  margin-bottom: 12px;
+}
+
+.introLogo{
+  width: min(320px, 78%);
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.introBody{
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.introSpacer{
+  height: 12px;
+}
+
+.introBig{
+  display: inline-block;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+  margin: 2px 0;
+}
+
+.introStartButton{
+  margin-top: 16px;
+  width: 100%;
+  border: none;
+
+  border-radius: 999px;
+  background: #000;
+
+  padding: 14px 16px;
+  cursor: pointer;
+
+  font-family: yu-gothic-pr6n, sans-serif;
+  font-weight: 1000;
+  font-style: normal;
+  font-size: 18px;
+
+  color: #ff8a00;
+}
+
+.introStartButton:active{
+  transform: translateY(1px);
+}
+
+.introPowered{
+  margin-top: 12px;
+
+  font-family: din-2014, sans-serif;
+  font-weight: 700;
+  font-style: normal;
+
+  font-size: 12px;
+  color: rgba(0,0,0,0.65);
 }

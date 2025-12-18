@@ -91,7 +91,11 @@ export default function IdeaMap({
   const velRef = useRef<{ vx: number; vy: number }>({ vx: 0, vy: 0 });
 
   // ロゴタップの「一回寄せて終わる」
-  const focusRef = useRef<{ active: boolean; tx: number; ty: number }>({ active: false, tx: 0, ty: 0 });
+  const focusRef = useRef<{ active: boolean; tx: number; ty: number }>({
+    active: false,
+    tx: 0,
+    ty: 0,
+  });
   const zoomRef = useRef<{ active: boolean; target: number }>({ active: false, target: 1 });
   const clampSoftUntilRef = useRef<number>(0);
 
@@ -195,11 +199,11 @@ export default function IdeaMap({
   } | null>(null);
 
   /**
-   * ✅ 「いいねしました！」の一時表示（裏面のまま文字だけ切り替える）
+   * ✅ 「いいねしました！」を一時表示（裏面のまま文字だけ切り替える）
    *  - until までだけ toast 表示
    *  - 期限切れ後は裏面に「アイデア本文だけ」を表示（いいね数は表示しない）
    */
-  const toastRef = useRef<Map<string, { until: number; likes: number; kind: "like" | "unlike" }>>(new Map());
+  const toastRef = useRef<Map<string, { until: number; likes: number }>>(new Map());
   const TOAST_MS = 2200;
 
   /**
@@ -397,7 +401,7 @@ export default function IdeaMap({
     };
 
     // ✅ 裏面：トースト（数秒だけ）
-    const drawBackToast = (sx: number, sy: number, sr: number, likes: number, alpha: number, kind: "like" | "unlike") => {
+    const drawBackToast = (sx: number, sy: number, sr: number, likes: number, alpha: number) => {
       const padding = Math.max(12, sr * 0.22);
       const usableR = Math.max(8, sr - padding);
       if (usableR < 14) return;
@@ -411,12 +415,12 @@ export default function IdeaMap({
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
-      const titleFont = clamp(sr * 0.18, 11, 16);
+      const titleFont = clamp(sr * 0.20, 12, 18);
       const countFont = clamp(sr * 0.20, 12, 18);
-      const gap = clamp(sr * 0.08, 6, 10);
+      const gap = clamp(sr * 0.10, 6, 10);
 
-      const line1 = kind === "like" ? "それな！👍" : "いいねを解除しました";
-      const line2 = `合計: ${likes}`;
+      const line1 = "それな！";
+      const line2 = `${likes}人が共感`;
 
       const totalH = titleFont * 1.1 + gap + countFont * 1.1;
       let y = sy - totalH / 2 + (titleFont * 1.1) / 2;
@@ -426,7 +430,7 @@ export default function IdeaMap({
 
       y += titleFont * 1.1 + gap;
 
-      ctx.font = `600 ${countFont}px ${APP_FONT}`;
+      ctx.font = `700 ${countFont}px ${APP_FONT}`;
       ctx.fillText(line2, sx, y);
 
       ctx.restore();
@@ -497,7 +501,19 @@ export default function IdeaMap({
       return Math.hypot(x - cw.x, y - cw.y) <= obstacleRRef.current;
     };
 
+    const cleanupToasts = (now: number) => {
+      const m = toastRef.current;
+      for (const [id, t] of m.entries()) {
+        if (now >= t.until) m.delete(id);
+      }
+    };
+
     const draw = (dt: number) => {
+      const now = performance.now();
+
+      // ✅ トースト期限切れ掃除（backAlphaが低くて描画されない時でも消える）
+      cleanupToasts(now);
+
       // 半径アニメ更新
       {
         const k = 12;
@@ -592,8 +608,6 @@ export default function IdeaMap({
         right = w + margin,
         bottom = h + margin;
 
-      const now = performance.now();
-
       for (const n of nodesRef.current) {
         const anim = spawnAnimRef.current.get(n.id);
         let wx = n.x,
@@ -650,12 +664,9 @@ export default function IdeaMap({
         } else {
           if (backAlpha > 0.10) {
             const toast = toastRef.current.get(n.id);
-            if (toast && now < toast.until) {
-              // トースト中だけ いいね数を出す
-              drawBackToast(sx, sy, sr, toast.likes, backAlpha * extraAlpha, toast.kind);
+            if (toast) {
+              drawBackToast(sx, sy, sr, toast.likes, backAlpha * extraAlpha);
             } else {
-              // トースト終了後：いいね数は表示しない（本文だけ）
-              if (toast) toastRef.current.delete(n.id);
               drawBackOnlyMessage(sx, sy, sr, n.message ?? "", backAlpha * extraAlpha);
             }
           }
@@ -723,9 +734,8 @@ export default function IdeaMap({
       if (tapRef.current?.active && tapRef.current.pointerId === e.pointerId) {
         const dx = e.clientX - tapRef.current.startX;
         const dy = e.clientY - tapRef.current.startY;
-        if (Math.hypypot?.(dx, dy) ? Math.hypypot(dx, dy) > 8 : Math.hypot(dx, dy) > 8) {
-          tapRef.current.active = false;
-        }
+        // ✅ TSエラーの元を削除：Math.hypotだけ使う
+        if (Math.hypot(dx, dy) > 8) tapRef.current.active = false;
       }
 
       if (pinchRef.current.active && pointersRef.current.size === 2) {
@@ -816,13 +826,15 @@ export default function IdeaMap({
           // サーバ結果で最終確定
           setFlipTarget(n.id, r.liked ? 1 : 0);
 
-          // ✅ 裏面のまま：トーストを数秒だけ出す
-          const now = performance.now();
-          toastRef.current.set(n.id, {
-            until: now + TOAST_MS,
-            likes: r.likeCount,
-            kind: r.liked ? "like" : "unlike",
-          });
+          // ✅ いいねONの時だけトーストを出す（解除時は出さない）
+          if (r.liked) {
+            toastRef.current.set(n.id, {
+              until: performance.now() + TOAST_MS,
+              likes: r.likeCount,
+            });
+          } else {
+            toastRef.current.delete(n.id);
+          }
         } finally {
           likeBusyRef.current.delete(n.id);
         }
