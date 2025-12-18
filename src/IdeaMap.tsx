@@ -57,7 +57,7 @@ export default function IdeaMap({
     centerWorldRef.current = centerWorld;
   }, [centerWorld.x, centerWorld.y]);
 
-  const obstacleR = centerSize * 0.4 + 6;
+  const obstacleR = centerSize * 0.40 + 6;
   const obstacleRRef = useRef(obstacleR);
   useEffect(() => {
     obstacleRRef.current = obstacleR;
@@ -206,15 +206,15 @@ export default function IdeaMap({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // =========================
-    // ★ Canvasのfontで CSS var() は効かないので、
-    //   :root の --app-font を「文字列として」読み取って使う
-    // =========================
-    const readAppFontFamily = () => {
+    // ✅ Canvas側フォント（CSS var(--app-font) を実際の文字列に解決して使う）
+    const getAppFontFamily = () => {
       const v = getComputedStyle(document.documentElement).getPropertyValue("--app-font").trim();
-      return v || `system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`;
+      return v || 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
     };
-    let APP_FONT_FAMILY = readAppFontFamily();
+    const APP_FONT = getAppFontFamily();
+
+    // 行間：詰めたい要望に合わせて少し短め
+    const LINE = 1.10;
 
     let raf = 0;
     let lastT = performance.now();
@@ -229,9 +229,6 @@ export default function IdeaMap({
       canvas.height = Math.floor(rect.height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.imageSmoothingEnabled = true;
-
-      // フォント読み直し（フォント差し替え/読み込み後にも追従）
-      APP_FONT_FAMILY = readAppFontFamily();
     };
 
     const scheduleResize = () => {
@@ -270,10 +267,7 @@ export default function IdeaMap({
     const getWorldBounds = () => {
       const list = nodesRef.current;
       if (list.length === 0) return { minX: -300, maxX: 300, minY: -300, maxY: 300 };
-      let minX = Infinity,
-        minY = Infinity,
-        maxX = -Infinity,
-        maxY = -Infinity;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
       for (const n of list) {
         minX = Math.min(minX, n.x - n.r);
@@ -298,8 +292,8 @@ export default function IdeaMap({
       const h = rect.height;
       const cam = camRef.current;
 
-      const halfW = w / 2 / cam.scale;
-      const halfH = h / 2 / cam.scale;
+      const halfW = (w / 2) / cam.scale;
+      const halfH = (h / 2) / cam.scale;
 
       const worldMargin = 1100;
       const b = getWorldBounds();
@@ -345,11 +339,8 @@ export default function IdeaMap({
       return lines;
     };
 
-    // ★ここで行間を詰める（好みで 1.10 / 1.06 / 1.03）
-    const LINE = 1.06;
-
     const drawTextFront = (sx: number, sy: number, sr: number, msg: string, alpha: number) => {
-      const padding = Math.max(12, sr * 0.3);
+      const padding = Math.max(12, sr * 0.30);
       const usableR = Math.max(8, sr - padding);
       if (usableR < 12) return;
 
@@ -363,8 +354,7 @@ export default function IdeaMap({
       let chosenLines = [msg];
 
       for (let font = Math.floor(maxFont); font >= minFont; font -= 1) {
-        // ✅ ここは font を使う（chosenFont を参照しない）※バグ潰し
-        ctx.font = `700 ${font}px ${APP_FONT_FAMILY}`;
+        ctx.font = `700 ${font}px ${APP_FONT}`;
         const lines = wrapByChars(msg, maxWidth);
         const lineHeight = font * LINE;
         if (lines.length * lineHeight <= maxHeight) {
@@ -379,8 +369,7 @@ export default function IdeaMap({
       ctx.arc(sx, sy, usableR, 0, Math.PI * 2);
       ctx.clip();
 
-      // ✅ 表面の文字：太字
-      ctx.font = `700 ${chosenFont}px ${APP_FONT_FAMILY}`;
+      ctx.font = `700 ${chosenFont}px ${APP_FONT}`;
       ctx.fillStyle = `rgba(255,255,255,${alpha})`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -388,7 +377,6 @@ export default function IdeaMap({
       const lh = chosenFont * LINE;
       const totalH = chosenLines.length * lh;
       let y = sy - totalH / 2 + lh / 2;
-
       for (const line of chosenLines) {
         ctx.fillText(line, sx, y);
         y += lh;
@@ -397,64 +385,7 @@ export default function IdeaMap({
       ctx.restore();
     };
 
-    const drawBackText = (sx: number, sy: number, sr: number, msg: string, likes: number, alpha: number) => {
-      const padding = Math.max(12, sr * 0.22);
-      const usableR = Math.max(8, sr - padding);
-      if (usableR < 14) return;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(sx, sy, usableR, 0, Math.PI * 2);
-      ctx.clip();
-
-      const maxWidth = usableR * 1.62;
-      const textAreaH = usableR * 1.05;
-      const likesAreaH = usableR * 0.55;
-
-      const maxFont = clamp(sr * 0.3, 13, 26);
-      const minFont = 10;
-
-      let chosenFont = minFont;
-      let lines = [msg];
-
-      for (let font = Math.floor(maxFont); font >= minFont; font -= 1) {
-        ctx.font = `700 ${font}px ${APP_FONT_FAMILY}`;
-        const ls = wrapByChars(msg, maxWidth);
-        const lh = font * LINE;
-        if (ls.length * lh <= textAreaH) {
-          chosenFont = font;
-          lines = ls;
-          break;
-        }
-      }
-
-      ctx.fillStyle = `rgba(0,0,0,${alpha})`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-
-      const lh = chosenFont * LINE;
-      const totalH = lines.length * lh;
-      let y = sy - likesAreaH * 0.65 - totalH / 2 + lh / 2;
-
-      // ✅ 裏面の文章：太字
-      ctx.font = `700 ${chosenFont}px ${APP_FONT_FAMILY}`;
-      for (const line of lines) {
-        ctx.fillText(line, sx, y);
-        y += lh;
-      }
-
-      // ♥ 表示（自分が押してるかで ♥ / ♡）
-      const liked = likedSetRef.current.has(
-        // ここは呼び元で id を渡してないので後で補うために書き換え
-        // （この関数は下で id を使う形にして呼び出す）
-        "__dummy__"
-      );
-      void liked; // TS黙らせ（実際の判定は呼び出し側でマークを決める）
-
-      ctx.restore();
-    };
-
-    // drawBackText を「liked判定込み」で呼べるようにラッパ
+    // ✅ 裏面：文章 + ♥（likedで♥/♡）
     const drawBack = (sx: number, sy: number, sr: number, id: string, msg: string, likes: number, alpha: number) => {
       const padding = Math.max(12, sr * 0.22);
       const usableR = Math.max(8, sr - padding);
@@ -469,14 +400,14 @@ export default function IdeaMap({
       const textAreaH = usableR * 1.05;
       const likesAreaH = usableR * 0.55;
 
-      const maxFont = clamp(sr * 0.3, 13, 26);
+      const maxFont = clamp(sr * 0.30, 13, 26);
       const minFont = 10;
 
       let chosenFont = minFont;
       let lines = [msg];
 
       for (let font = Math.floor(maxFont); font >= minFont; font -= 1) {
-        ctx.font = `700 ${font}px ${APP_FONT_FAMILY}`;
+        ctx.font = `700 ${font}px ${APP_FONT}`;
         const ls = wrapByChars(msg, maxWidth);
         const lh = font * LINE;
         if (ls.length * lh <= textAreaH) {
@@ -494,14 +425,14 @@ export default function IdeaMap({
       const totalH = lines.length * lh;
       let y = sy - likesAreaH * 0.65 - totalH / 2 + lh / 2;
 
-      ctx.font = `700 ${chosenFont}px ${APP_FONT_FAMILY}`;
+      ctx.font = `700 ${chosenFont}px ${APP_FONT}`;
       for (const line of lines) {
         ctx.fillText(line, sx, y);
         y += lh;
       }
 
-      const likesFont = clamp(sr * 0.3, 13, 26);
-      ctx.font = `700 ${likesFont}px ${APP_FONT_FAMILY}`;
+      const likesFont = clamp(sr * 0.30, 13, 26);
+      ctx.font = `700 ${likesFont}px ${APP_FONT}`;
       const mark = likedSetRef.current.has(id) ? "♥" : "♡";
       ctx.fillText(`${mark} ${likes}`, sx, sy + usableR * 0.43);
 
@@ -672,11 +603,12 @@ export default function IdeaMap({
         ctx.stroke();
 
         if (isFront) {
-          if (frontAlpha > 0.1 && sr >= 34) drawTextFront(sx, sy, sr, n.message ?? "", frontAlpha * extraAlpha);
+          if (frontAlpha > 0.10 && sr >= 34) {
+            drawTextFront(sx, sy, sr, n.message ?? "", frontAlpha * extraAlpha);
+          }
         } else {
-          if (backAlpha > 0.1) {
+          if (backAlpha > 0.10) {
             const likes = likeMapRef.current.get(n.id) ?? 0;
-            // ✅ こっちは「♥/♡判定込み」のラッパを使う
             drawBack(sx, sy, sr, n.id, n.message ?? "", likes, backAlpha * extraAlpha);
           }
         }
@@ -800,6 +732,7 @@ export default function IdeaMap({
       if (tap?.active && tap.pointerId === e.pointerId) {
         const elapsed = performance.now() - tap.startT;
         tapRef.current = null;
+
         if (elapsed > 450) return;
 
         const rect = canvas.getBoundingClientRect();
@@ -884,7 +817,7 @@ export default function IdeaMap({
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("click", preventClick);
     };
-  }, []); // ★Canvasは作り直さない（チラつき根絶）
+  }, []); // ★ここが超重要：Canvasは作り直さない（チラつき根絶）
 
   return (
     <div style={{ width: "100%", height, position: "relative", overflow: "hidden" }}>
