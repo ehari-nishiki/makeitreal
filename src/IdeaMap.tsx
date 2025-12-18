@@ -125,7 +125,9 @@ export default function IdeaMap({
   // spawn anim
   const handledSpawnIdRef = useRef<string | null>(null);
   const pendingSpawnRef = useRef<{ id: string; clientX: number; clientY: number } | null>(null);
-  const spawnAnimRef = useRef<Map<string, { x0: number; y0: number; t0: number; dur: number }>>(new Map());
+  const spawnAnimRef = useRef<Map<string, { x0: number; y0: number; t0: number; dur: number }>>(
+    new Map()
+  );
 
   useEffect(() => {
     if (!spawn?.id) return;
@@ -333,10 +335,20 @@ export default function IdeaMap({
       cam.cy += (targetCy - cam.cy) * a;
     };
 
+    // 既存：オレンジ（裏面など）
     const gradStroke = (sx: number, sy: number, sr: number) => {
       const g = ctx.createLinearGradient(sx, sy - sr, sx, sy + sr);
       g.addColorStop(0, "#FFC300");
       g.addColorStop(1, "#FF4E00");
+      return g;
+    };
+
+    // ✅ 追加：銀っぽい（未いいねの表面用）
+    const silverStroke = (sx: number, sy: number, sr: number) => {
+      const g = ctx.createLinearGradient(sx, sy - sr, sx, sy + sr);
+      g.addColorStop(0, "#FFFFFF");
+      g.addColorStop(0.45, "#D9D9D9");
+      g.addColorStop(1, "#9C9C9C");
       return g;
     };
 
@@ -401,6 +413,7 @@ export default function IdeaMap({
     };
 
     // ✅ 裏面：トースト（数秒だけ）
+    // 小さめ・控えめ：要望に合わせて「いいねしました！」 + 「いいね数:n」
     const drawBackToast = (sx: number, sy: number, sr: number, likes: number, alpha: number) => {
       const padding = Math.max(12, sr * 0.22);
       const usableR = Math.max(8, sr - padding);
@@ -415,12 +428,12 @@ export default function IdeaMap({
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
-      const titleFont = clamp(sr * 0.20, 12, 18);
-      const countFont = clamp(sr * 0.20, 12, 18);
-      const gap = clamp(sr * 0.10, 6, 10);
+      const titleFont = clamp(sr * 0.18, 11, 16);
+      const countFont = clamp(sr * 0.18, 11, 16);
+      const gap = clamp(sr * 0.08, 6, 10);
 
       const line1 = "それな！";
-      const line2 = `${likes}人が共感`;
+      const line2 = `${likes}人が共感！`;
 
       const totalH = titleFont * 1.1 + gap + countFont * 1.1;
       let y = sy - totalH / 2 + (titleFont * 1.1) / 2;
@@ -651,8 +664,9 @@ export default function IdeaMap({
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
         ctx.fill();
 
+        // ✅ ここが変更点：表(未いいね)だけ銀、裏は従来オレンジ
         ctx.lineWidth = 4;
-        ctx.strokeStyle = gradStroke(sx, sy, sr);
+        ctx.strokeStyle = isFront ? silverStroke(sx, sy, sr) : gradStroke(sx, sy, sr);
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
         ctx.stroke();
@@ -734,7 +748,6 @@ export default function IdeaMap({
       if (tapRef.current?.active && tapRef.current.pointerId === e.pointerId) {
         const dx = e.clientX - tapRef.current.startX;
         const dy = e.clientY - tapRef.current.startY;
-        // ✅ TSエラーの元を削除：Math.hypotだけ使う
         if (Math.hypot(dx, dy) > 8) tapRef.current.active = false;
       }
 
