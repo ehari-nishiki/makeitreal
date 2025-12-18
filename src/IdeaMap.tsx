@@ -195,6 +195,14 @@ export default function IdeaMap({
   } | null>(null);
 
   /**
+   * ✅ 「いいねしました！」の一時表示（裏面のまま文字だけ切り替える）
+   *  - until までだけ toast 表示
+   *  - 期限切れ後は裏面に「アイデア本文だけ」を表示（いいね数は表示しない）
+   */
+  const toastRef = useRef<Map<string, { until: number; likes: number; kind: "like" | "unlike" }>>(new Map());
+  const TOAST_MS = 2200;
+
+  /**
    * ================================
    * ✅ Canvas 初期化は「1回だけ」
    * ================================
@@ -213,7 +221,7 @@ export default function IdeaMap({
     };
     const APP_FONT = getAppFontFamily();
 
-    // 行間：詰めたい要望に合わせて少し短め
+    // 行間：詰め気味
     const LINE = 1.10;
 
     let raf = 0;
@@ -267,7 +275,10 @@ export default function IdeaMap({
     const getWorldBounds = () => {
       const list = nodesRef.current;
       if (list.length === 0) return { minX: -300, maxX: 300, minY: -300, maxY: 300 };
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
 
       for (const n of list) {
         minX = Math.min(minX, n.x - n.r);
@@ -292,8 +303,8 @@ export default function IdeaMap({
       const h = rect.height;
       const cam = camRef.current;
 
-      const halfW = (w / 2) / cam.scale;
-      const halfH = (h / 2) / cam.scale;
+      const halfW = w / 2 / cam.scale;
+      const halfH = h / 2 / cam.scale;
 
       const worldMargin = 1100;
       const b = getWorldBounds();
@@ -385,8 +396,44 @@ export default function IdeaMap({
       ctx.restore();
     };
 
-    // ✅ 裏面：文章 + ♥（likedで♥/♡）
-    const drawBack = (sx: number, sy: number, sr: number, id: string, msg: string, likes: number, alpha: number) => {
+    // ✅ 裏面：トースト（数秒だけ）
+    const drawBackToast = (sx: number, sy: number, sr: number, likes: number, alpha: number, kind: "like" | "unlike") => {
+      const padding = Math.max(12, sr * 0.22);
+      const usableR = Math.max(8, sr - padding);
+      if (usableR < 14) return;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx, sy, usableR, 0, Math.PI * 2);
+      ctx.clip();
+
+      ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      const titleFont = clamp(sr * 0.18, 11, 16);
+      const countFont = clamp(sr * 0.20, 12, 18);
+      const gap = clamp(sr * 0.08, 6, 10);
+
+      const line1 = kind === "like" ? "それな！👍" : "いいねを解除しました";
+      const line2 = `合計: ${likes}`;
+
+      const totalH = titleFont * 1.1 + gap + countFont * 1.1;
+      let y = sy - totalH / 2 + (titleFont * 1.1) / 2;
+
+      ctx.font = `700 ${titleFont}px ${APP_FONT}`;
+      ctx.fillText(line1, sx, y);
+
+      y += titleFont * 1.1 + gap;
+
+      ctx.font = `600 ${countFont}px ${APP_FONT}`;
+      ctx.fillText(line2, sx, y);
+
+      ctx.restore();
+    };
+
+    // ✅ 裏面：通常表示（アイデア本文だけ。いいね数は出さない）
+    const drawBackOnlyMessage = (sx: number, sy: number, sr: number, msg: string, alpha: number) => {
       const padding = Math.max(12, sr * 0.22);
       const usableR = Math.max(8, sr - padding);
       if (usableR < 14) return;
@@ -397,10 +444,9 @@ export default function IdeaMap({
       ctx.clip();
 
       const maxWidth = usableR * 1.62;
-      const textAreaH = usableR * 1.05;
-      const likesAreaH = usableR * 0.55;
+      const maxHeight = usableR * 1.55;
 
-      const maxFont = clamp(sr * 0.30, 13, 26);
+      const maxFont = clamp(sr * 0.28, 12, 22);
       const minFont = 10;
 
       let chosenFont = minFont;
@@ -410,7 +456,7 @@ export default function IdeaMap({
         ctx.font = `700 ${font}px ${APP_FONT}`;
         const ls = wrapByChars(msg, maxWidth);
         const lh = font * LINE;
-        if (ls.length * lh <= textAreaH) {
+        if (ls.length * lh <= maxHeight) {
           chosenFont = font;
           lines = ls;
           break;
@@ -423,18 +469,13 @@ export default function IdeaMap({
 
       const lh = chosenFont * LINE;
       const totalH = lines.length * lh;
-      let y = sy - likesAreaH * 0.65 - totalH / 2 + lh / 2;
 
+      let y = sy - totalH / 2 + lh / 2;
       ctx.font = `700 ${chosenFont}px ${APP_FONT}`;
       for (const line of lines) {
         ctx.fillText(line, sx, y);
         y += lh;
       }
-
-      const likesFont = clamp(sr * 0.30, 13, 26);
-      ctx.font = `700 ${likesFont}px ${APP_FONT}`;
-      const mark = likedSetRef.current.has(id) ? "♥" : "♡";
-      ctx.fillText(`${mark} ${likes}`, sx, sy + usableR * 0.43);
 
       ctx.restore();
     };
@@ -608,8 +649,15 @@ export default function IdeaMap({
           }
         } else {
           if (backAlpha > 0.10) {
-            const likes = likeMapRef.current.get(n.id) ?? 0;
-            drawBack(sx, sy, sr, n.id, n.message ?? "", likes, backAlpha * extraAlpha);
+            const toast = toastRef.current.get(n.id);
+            if (toast && now < toast.until) {
+              // トースト中だけ いいね数を出す
+              drawBackToast(sx, sy, sr, toast.likes, backAlpha * extraAlpha, toast.kind);
+            } else {
+              // トースト終了後：いいね数は表示しない（本文だけ）
+              if (toast) toastRef.current.delete(n.id);
+              drawBackOnlyMessage(sx, sy, sr, n.message ?? "", backAlpha * extraAlpha);
+            }
           }
         }
 
@@ -675,7 +723,9 @@ export default function IdeaMap({
       if (tapRef.current?.active && tapRef.current.pointerId === e.pointerId) {
         const dx = e.clientX - tapRef.current.startX;
         const dy = e.clientY - tapRef.current.startY;
-        if (Math.hypot(dx, dy) > 8) tapRef.current.active = false;
+        if (Math.hypypot?.(dx, dy) ? Math.hypypot(dx, dy) > 8 : Math.hypot(dx, dy) > 8) {
+          tapRef.current.active = false;
+        }
       }
 
       if (pinchRef.current.active && pointersRef.current.size === 2) {
@@ -751,6 +801,8 @@ export default function IdeaMap({
         if (!n) return;
 
         const alreadyLiked = likedSetRef.current.has(n.id);
+
+        // 先に見た目だけ反映（裏面にする/戻す）
         setFlipTarget(n.id, alreadyLiked ? 0 : 1);
 
         const fn = onToggleLikeRef.current;
@@ -760,7 +812,17 @@ export default function IdeaMap({
         likeBusyRef.current.add(n.id);
         try {
           const r = await fn(n.id);
+
+          // サーバ結果で最終確定
           setFlipTarget(n.id, r.liked ? 1 : 0);
+
+          // ✅ 裏面のまま：トーストを数秒だけ出す
+          const now = performance.now();
+          toastRef.current.set(n.id, {
+            until: now + TOAST_MS,
+            likes: r.likeCount,
+            kind: r.liked ? "like" : "unlike",
+          });
         } finally {
           likeBusyRef.current.delete(n.id);
         }
@@ -817,7 +879,7 @@ export default function IdeaMap({
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("click", preventClick);
     };
-  }, []); // ★ここが超重要：Canvasは作り直さない（チラつき根絶）
+  }, []); // ★Canvasは作り直さない（チラつき根絶）
 
   return (
     <div style={{ width: "100%", height, position: "relative", overflow: "hidden" }}>
